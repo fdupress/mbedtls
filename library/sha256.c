@@ -48,8 +48,13 @@
 #if !defined(MBEDTLS_SHA256_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize( void *v, size_t n ) {
-    volatile unsigned char *p = v; while( n-- ) *p++ = 0;
+static void mbedtls_zeroize( mbedtls_sha256_context *ctx ) {
+    /* volatile unsigned char *p = v; while( n-- ) *p++ = 0; */
+    size_t i;
+    for( i = 0; i <  2; i++) ctx->total[i]  = 0;
+    for( i = 0; i <  8; i++) ctx->state[i]  = 0;
+    for( i = 0; i < 64; i++) ctx->buffer[i] = 0;
+    ctx->is224 = 0;
 }
 
 /*
@@ -77,7 +82,12 @@ do {                                                    \
 
 void mbedtls_sha256_init( mbedtls_sha256_context *ctx )
 {
-    memset( ctx, 0, sizeof( mbedtls_sha256_context ) );
+    /* memset( ctx, 0, sizeof( mbedtls_sha256_context ) ); */
+    size_t i;
+    for( i = 0; i <  2; i++) ctx->total[i]  = 0;
+    for( i = 0; i <  8; i++) ctx->state[i]  = 0;
+    for( i = 0; i < 64; i++) ctx->buffer[i] = 0;
+    ctx->is224 = 0;
 }
 
 void mbedtls_sha256_free( mbedtls_sha256_context *ctx )
@@ -85,7 +95,7 @@ void mbedtls_sha256_free( mbedtls_sha256_context *ctx )
     if( ctx == NULL )
         return;
 
-    mbedtls_zeroize( ctx, sizeof( mbedtls_sha256_context ) );
+    mbedtls_zeroize( ctx );
 }
 
 void mbedtls_sha256_clone( mbedtls_sha256_context *dst,
@@ -232,6 +242,12 @@ void mbedtls_sha256_process( mbedtls_sha256_context *ctx, const unsigned char da
 }
 #endif /* !MBEDTLS_SHA256_PROCESS_ALT */
 
+#define copy(__dst,__src,__len)                          \
+do {                                                     \
+  size_t i;                                              \
+  for( i = 0; i < (__len); i++) (__dst)[i] = (__src)[i]; \
+}  while (0)
+
 /*
  * SHA-256 process buffer
  */
@@ -255,22 +271,27 @@ void mbedtls_sha256_update( mbedtls_sha256_context *ctx, const unsigned char *in
 
     if( left && ilen >= fill )
     {
-        memcpy( (void *) (ctx->buffer + left), input, fill );
-        mbedtls_sha256_process( ctx, ctx->buffer );
-        input += fill;
-        ilen  -= fill;
-        left = 0;
+      unsigned char buffer[64];
+      copy(buffer,ctx->buffer,left);
+      copy(buffer + left,input,fill); /* This one is fine as memcpy */
+      mbedtls_sha256_process( ctx, buffer );
+      /* memcpy(ctx->buffer + left,input,fill); */
+      /* mbedtls_sha256_process( ctx, ctx->buffer ); */
+      input += fill;
+      ilen  -= fill;
+      left = 0;
     }
 
     while( ilen >= 64 )
     {
-        mbedtls_sha256_process( ctx, input );
-        input += 64;
-        ilen  -= 64;
+      mbedtls_sha256_process( ctx, input );
+      input += 64;
+      ilen  -= 64;
     }
 
-    if( ilen > 0 )
-        memcpy( (void *) (ctx->buffer + left), input, ilen );
+    if( ilen > 0 ) {
+      copy(ctx->buffer + left,input,ilen);
+    }
 }
 
 static const unsigned char sha256_padding[64] =
